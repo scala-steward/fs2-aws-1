@@ -50,13 +50,12 @@ import scala.concurrent.ExecutionContext
  */
 abstract class IOLambda[A, B](printer: Printer = Defaults.printer,
                               executionContext: ExecutionContext = Defaults.executionContext,
-                             )(implicit LR: LambdaReader[Kleisli[Kleisli[IO, Span[IO], *], LambdaReaderEnvironment[Kleisli[IO, Span[IO], *]], *], A]) extends RequestStreamHandler {
+                             )(implicit LR: LambdaReader[Kleisli[IO, LambdaReaderEnvironment[IO], *], A]) extends RequestStreamHandler {
   protected implicit def contextShift: ContextShift[IO] = cats.effect.IO.contextShift(executionContext)
   protected implicit def timer: Timer[IO] = cats.effect.IO.timer(executionContext)
   protected implicit def logger: Logger[IO] = Slf4jLogger.getLoggerFromName[IO]("LambdaLogger")
-  private implicit val kleisliLogger: Logger[Kleisli[IO, Span[IO], *]] = Logger[IO].mapK(Kleisli.liftK)
 
-  def handleRequestF[F[_] : Concurrent : ContextShift : Logger : Timer : Trace](blocker: Blocker)
+  def handleRequestF[F[_] : ConcurrentEffect : ContextShift : Logger : Timer](blocker: Blocker)
                                                                                (req: A, context: Context): F[LambdaResponse[B]]
 
   val tracingEntryPoint: Resource[IO, EntryPoint[IO]] = NoOpEntryPoint[IO]
@@ -68,15 +67,15 @@ abstract class IOLambda[A, B](printer: Printer = Defaults.printer,
   }
 
   private def handleRequest(input: IO[InputStream], output: IO[OutputStream], context: Context): IO[Unit] =
-    tracingEntryPoint.use {
-      _.root("IOLambda").use { span =>
+//    tracingEntryPoint.use {
+//      _.root("IOLambda").use { span =>
         Blocker[IO].use { blocker =>
           val response: IO[LambdaResponse[B]] =
             LR
-              .read(Kleisli.liftF(Kleisli.liftF(input)))
+              .read(Kleisli.liftF(input))
               .run(LambdaReaderEnvironment(blocker))
-              .flatMap(handleRequestF[Kleisli[IO, Span[IO], *]](blocker)(_, context))
-              .run(span)
+              .flatMap(handleRequestF[IO](blocker)(_, context))
+//              .run(span)
 
           Stream.eval(response).flatMap {
             case NoResponse =>
@@ -88,8 +87,8 @@ abstract class IOLambda[A, B](printer: Printer = Defaults.printer,
             .compile
             .drain
         }
-      }
-    }
+//      }
+//    }
 
   final override def handleRequest(input: InputStream, output: OutputStream, context: Context): Unit =
     handleRequest(Sync[IO].delay(input), Sync[IO].delay(output), context)

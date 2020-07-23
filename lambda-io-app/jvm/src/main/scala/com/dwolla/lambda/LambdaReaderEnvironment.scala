@@ -7,7 +7,6 @@ import cats.Applicative
 import cats.effect._
 import cats.implicits._
 import io.chrisdavenport.log4cats.Logger
-import natchez._
 
 import scala.annotation.implicitNotFound
 
@@ -39,15 +38,15 @@ trait LowPriorityLambdaReader {
   import fs2._
   import fs2.text._
 
-  implicit def readCirceDecodables[F[_] : Sync : Trace, A: Decoder]: LambdaReader[Kleisli[F, LambdaReaderEnvironment[F], *], A] =
+  implicit def readCirceDecodables[F[_] : Sync, A: Decoder]: LambdaReader[Kleisli[F, LambdaReaderEnvironment[F], *], A] =
     new LambdaReader[Kleisli[F, LambdaReaderEnvironment[F], *], A] {
-      private val readFrom: Stream[F, Byte] => F[String] = s => Trace[F].span("readCirceDecodables.readFrom") {
+      private val readFrom: Stream[F, Byte] => F[String] = s => {
         s.through(utf8Decode[F])
           .compile
           .string
       }
 
-      private def parseStream(input: Stream[F, Byte])(implicit L: Logger[F]): F[A] = Trace[F].span("readCirceDecodables.parseStream") {
+      private def parseStream(input: Stream[F, Byte])(implicit L: Logger[F]): F[A] =  {
         for {
           str <- readFrom(input)
           json <- parseStringLoggingErrors(str)
@@ -55,7 +54,7 @@ trait LowPriorityLambdaReader {
         } yield req
       }
 
-      private def parseStringLoggingErrors(str: String)(implicit L: Logger[F]): F[Json] = Trace[F].span("readCirceDecodables.parseStringLoggingErrors") {
+      private def parseStringLoggingErrors(str: String)(implicit L: Logger[F]): F[Json] = {
         parse(str)
           .toEitherT[F]
           .leftSemiflatTap(Logger[F].error(_)(s"Could not parse the following input:\n$str"))
